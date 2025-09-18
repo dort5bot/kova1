@@ -19,27 +19,41 @@ from utils.logger import setup_logger
 # Logger kurulumu
 setup_logger()
 
-async def start_simple_server(port: int):
-    """Render için basit bir HTTP sunucusu başlat"""
-    def handle_request(conn):
-        try:
-            conn.recv(1024)  # İsteği al (kullanmasak da)
-            response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nBot is running"
-            conn.send(response)
-        except Exception as e:
-            print(f"HTTP hatası: {e}")
-        finally:
-            conn.close()
+async def handle_health_check(reader, writer):
+    """Asenkron health check handler"""
+    try:
+        # İsteği oku (ama kullanma)
+        await reader.read(1024)
+        
+        # Basit HTTP yanıtı
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nBot is running"
+        writer.write(response.encode())
+        await writer.drain()
+        
+    except Exception as e:
+        print(f"Health check hatası: {e}")
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+async def start_health_check_server(port: int):
+    """Asenkron health check sunucusu başlat"""
+    server = await asyncio.start_server(
+        handle_health_check, 
+        '0.0.0.0', 
+        port
+    )
     
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    sock.bind(('0.0.0.0', port))
-    sock.listen(5)
-    print(f"🔄 Health check sunucusu {port} portunda başlatıldı")
-    
-    return sock
+    print(f"✅ Health check sunucusu {port} portunda başlatıldı")
+    return server
 
 async def main():
+    # Önce bot token kontrolü
+    if not config.TELEGRAM_TOKEN:
+        print("❌ HATA: Bot token bulunamadı!")
+        print("Lütfen BOT_TOKEN environment variable'ını kontrol edin")
+        return
+
     storage = MemoryStorage()
 
     # Bot oluşturma
@@ -59,24 +73,35 @@ async def main():
     dp.include_router(json_router)
     dp.include_router(button_router)
     
-    # Render için health check sunucusu başlat
-    server_socket = await start_simple_server(config.PORT)
-    
     try:
+        # Health check sunucusunu başlat
+        health_server = await start_health_check_server(config.PORT)
+        
         # Webhook'u kapat, polling başlat
         await bot.delete_webhook(drop_pending_updates=True)
         print("🤖 Bot polling başlatılıyor...")
         
-        # Bot'u ayrı bir task'ta başlat
-        bot_task = asyncio.create_task(dp.start_polling(bot))
-        
-        # Hem botu hem de health check'i çalıştır
-        await asyncio.gather(bot_task)
-        
+        # Hem health check sunucusunu hem de botu çalıştır
+        async with health_server:
+            # Health check sunucusunu arka planda çalıştır
+            health_task = asyncio.create_task(health_server.serve_forever())
+            
+            # Botu çalıştır
+            try:
+                await dp.start_polling(bot)
+            finally:
+                # Bot durduğunda health task'ı iptal et
+                health_task.cancel()
+                try:
+                    await health_task
+                except asyncio.CancelledError:
+                    pass
+                
     except Exception as e:
-        print(f"❌ Hata: {e}")
+        print(f"❌ Ana hata: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
-        server_socket.close()
         await bot.session.close()
 
 if __name__ == "__main__":
