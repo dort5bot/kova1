@@ -1,7 +1,7 @@
 #main.py
 import asyncio
 from aiogram import Bot, Dispatcher
-from aiogram.client.default import DefaultBotProperties
+#from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.memory import MemoryStorage  # Redis yerine MemoryStorage
 
@@ -56,4 +56,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
