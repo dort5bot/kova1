@@ -27,10 +27,17 @@ async def main():
     # Redis yerine MemoryStorage kullan
     storage = MemoryStorage()
 
+    #bot = Bot(
+     #   token=config.TELEGRAM_TOKEN,
+      #  default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    #)
     bot = Bot(
-        token=config.TELEGRAM_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    token=config.TELEGRAM_TOKEN,
+    parse_mode=ParseMode.HTML
     )
+
+
+    
     dp = Dispatcher(storage=storage)
 
     # Router'ları yükle
@@ -49,3 +56,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
