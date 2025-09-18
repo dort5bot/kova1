@@ -1,0 +1,45 @@
+#Yardımcı Dosya İşlemleri (utils/file_utils.py)
+"""
+Bu status handler modülü, botun durumunu izlemek, 
+logları görüntülemek, istatistikleri toplamak ve 
+sistem yönetimi yapmak için kapsamlı bir dizi komut sağlar.
+ Tüm komutlar kullanıcı dostu çıktılar üretir ve 
+hata durumlarında uygun geri bildirim sağlar.
+
+"""
+import asyncio
+import logging
+from aiogram import Bot, Dispatcher
+from aiogram.client.default import DefaultBotProperties
+from aiogram.enums import ParseMode
+from aiogram.fsm.storage.redis import RedisStorage
+
+from config import config
+from handlers.upload_handler import router as upload_router
+from handlers.status_handler import router as status_router
+from handlers.admin_handler import router as admin_router
+from utils.logger import setup_logger
+
+# Logger kurulumu
+setup_logger()
+
+async def main():
+    # Redis storage for FSM
+    storage = RedisStorage.from_url(config.REDIS_URL)
+    
+    bot = Bot(
+        token=config.TELEGRAM_TOKEN,
+        default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+    )
+    dp = Dispatcher(storage=storage)
+    
+    # Handlers'ı kaydet
+    dp.include_router(upload_router)
+    dp.include_router(status_router)
+    dp.include_router(admin_router)
+    
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
