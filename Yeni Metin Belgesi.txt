@@ -1,0 +1,20 @@
+# Admin panelini aç
+/admin
+
+# Test e-postası gönder
+/send_test_email admin@firma.com
+
+# Log dosyasını indir
+/get_logfile
+
+# Grup dosyası güncelleme
+/admin → "Grup Dosyası Yükle" → JSON dosyası gönder
+
+# Sistem durumunu kontrol et
+/admin → "Sistem Durumu"
+
+# Eski dosyaları temizle
+/admin → "Temizlik Yap"
+
+
+============
