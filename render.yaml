@@ -3,18 +3,18 @@ services:
   - type: web
     name: aiogram-bot
     env: python
-    pythonVersion: "3.12.9"  # Python 3.13'ten kaçının!
+    pythonVersion: "3.12.9"  # Python 3.13 yerine bu daha kararlı
     buildCommand: |
       pip install --upgrade pip
       pip install -r requirements.txt
-    startCommand: python main.py  # veya botunuzun başlatma komutu
+    startCommand: python main.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.12.9
       - key: PYTHONUNBUFFERED
-        value: 1
+        value: "1"
       - key: PYTHONPATH
         value: /opt/render/project/src
-    plan: free  # veya starter/pro
+    plan: free
     numInstances: 1
-    healthCheckPath: /health  # eğer bir health endpoint'iniz varsa
+    healthCheckPath: /health  # Health endpoint'in yoksa kaldırılabilir
