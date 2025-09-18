@@ -1,9 +1,12 @@
+#pip install --upgrade pip setuptools wheel satırında --no-cache-dir ekle → daha az katman şişmesi olur
+# builder aşamasında gcc/g++ gibi paketleri kuruyorsun ama runtime’da aslında gerek kalmıyor. Yani image küçültmek için sadece build aşamasında bırakıldı 
+
 # Build aşaması
 FROM python:3.11-slim AS builder
 
 WORKDIR /app
 
-# Build bağımlılıklarını kur (eksik paketler eklendi)
+# Build bağımlılıklarını kur
 RUN apt-get update && apt-get install -y \
     gcc \
     g++ \
@@ -13,10 +16,10 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Pip'i güncelle (derleme sorunlarını önlemek için)
-RUN pip install --upgrade pip setuptools wheel
+# Pip'i güncelle
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Bağımlılıkları kopyala ve wheel olarak derle (--no-deps KALDIRILDI)
+# Bağımlılıkları kopyala ve wheel olarak derle
 COPY requirements.txt .
 RUN pip wheel --no-cache-dir --wheel-dir /app/wheels -r requirements.txt
 
@@ -29,7 +32,7 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Runtime bağımlılıkları
+# Sadece gerekli runtime bağımlılıkları
 RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
