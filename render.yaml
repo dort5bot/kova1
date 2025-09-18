@@ -1,7 +1,20 @@
+version: "1"
 services:
   - type: web
-    name: my-app
+    name: aiogram-bot
     env: python
-    pythonVersion: "3.12"
-    buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT
+    pythonVersion: "3.12.9"  # Python 3.13'ten kaçının!
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
+    startCommand: python main.py  # veya botunuzun başlatma komutu
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.9
+      - key: PYTHONUNBUFFERED
+        value: 1
+      - key: PYTHONPATH
+        value: /opt/render/project/src
+    plan: free  # veya starter/pro
+    numInstances: 1
+    healthCheckPath: /health  # eğer bir health endpoint'iniz varsa
