@@ -1,4 +1,4 @@
-# config.py - DEBUG EKLENMİŞ HALİ
+# config.py
 import os
 import logging
 from dataclasses import dataclass, field
@@ -32,6 +32,9 @@ class Config:
     SMTP_PASSWORD: str = os.getenv("SMTP_PASSWORD", "")
     ADMIN_CHAT_IDS: list[int] = field(default_factory=list)
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+    
+    # Render için port ayarı
+    PORT: int = int(os.getenv("PORT", 10000))
 
     def __post_init__(self):
         # ADMIN_CHAT_IDS'i yükle - GELİŞMİŞ DEBUG
