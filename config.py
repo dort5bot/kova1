@@ -23,8 +23,8 @@ for key in ['BOT_TOKEN', 'ADMIN_CHAT_IDS', 'SMTP_USERNAME']:
 
 @dataclass
 class Config:
-    BOT_TOKEN: str = os.getenv("BOT_TOKEN", "")
-    TELEGRAM_TOKEN: str = os.getenv("BOT_TOKEN", "")
+    BOT_TOKEN: str = os.getenv("TELEGRAM_TOKEN", "")
+    #TELEGRAM_TOKEN: str = os.getenv("BOT_TOKEN", "")
     
     SMTP_SERVER: str = os.getenv("SMTP_SERVER", "smtp.gmail.com")
     SMTP_PORT: int = int(os.getenv("SMTP_PORT", 587))
@@ -71,3 +71,4 @@ class Config:
             directory.mkdir(parents=True, exist_ok=True)
 
 config = Config()
+
