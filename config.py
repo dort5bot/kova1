@@ -1,3 +1,4 @@
+# config.py
 import os
 import logging
 from dataclasses import dataclass, field
@@ -6,19 +7,20 @@ from dotenv import load_dotenv
 
 # .env dosyasını yükle
 env_path = Path('.') / '.env'
-logging.info(f".env dosya yolu: {env_path.absolute()}")
-logging.info(f".env dosyası var mı: {env_path.exists()}")
-
 load_dotenv()
 
+# Logger henüz kurulmadığı için temel logging kullan
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Debug amaçlı bazı env değişkenlerini göster
-logging.info("Mevcut env değişkenleri:")
-for key in ['TELEGRAM_TOKEN', 'ADMIN_CHAT_IDS', 'SMTP_USERNAME']:
+logger.info("Mevcut env değişkenleri:")
+for key in ['TELEGRAM_TOKEN', 'ADMIN_CHAT_IDS', 'SMTP_USERNAME', 'USE_WEBHOOK', 'WEBHOOK_URL']:
     value = os.getenv(key)
     if value:
-        logging.info(f"  {key}: {value}")
+        logger.info(f"  {key}: {value}")
     else:
-        logging.warning(f"  {key}: TANIMSIZ")
+        logger.warning(f"  {key}: TANIMSIZ")
 
 
 @dataclass
@@ -38,18 +40,27 @@ class Config:
     # -----------------------------
     # Webhook / Polling Ayarları
     # -----------------------------
-    USE_WEBHOOK: bool = False
-    WEBHOOK_URL: str = ""
-    WEBHOOK_SECRET: str = ""
-    PORT: int = 3000  # Varsayılan, sonra __post_init__ içinde güncellenir
+    # USE_WEBHOOK=true → webhook aktif
+    # USE_WEBHOOK=false → polling aktif
+    USE_WEBHOOK: bool = field(
+        default_factory=lambda: os.getenv("USE_WEBHOOK", "false").lower() == "true"
+    )
+    WEBHOOK_URL: str = field(
+        default_factory=lambda: os.getenv("WEBHOOK_URL", "").rstrip("/")
+    )  # Örn: https://abc2.onrender.com
+    WEBHOOK_SECRET: str = field(
+        default_factory=lambda: os.getenv("WEBHOOK_SECRET", "")
+    )
+    PORT: int = field(
+        default_factory=lambda: int(os.getenv("PORT", "3000"))
+    )  # Render/Heroku için port
 
     def __post_init__(self):
         # -----------------------------
         # Admin Chat ID'leri Yükle
         # -----------------------------
         admin_ids = os.getenv("ADMIN_CHAT_IDS", "")
-        logging.info(f"ADMIN_CHAT_IDS raw değer: '{admin_ids}'")
-        logging.info(f"ADMIN_CHAT_IDS type: {type(admin_ids)}")
+        logger.info(f"ADMIN_CHAT_IDS raw değer: '{admin_ids}'")
 
         self.ADMIN_CHAT_IDS = []
         if admin_ids and admin_ids.strip():
@@ -61,31 +72,16 @@ class Config:
                     ids_list = [int(cleaned)]
 
                 self.ADMIN_CHAT_IDS = ids_list
-                logging.info(f"✅ Yüklenen Admin ID'leri: {self.ADMIN_CHAT_IDS}")
+                logger.info(f"✅ Yüklenen Admin ID'leri: {self.ADMIN_CHAT_IDS}")
             except ValueError as e:
-                logging.error(f"❌ HATA: Admin ID dönüşüm hatası: {e}")
-                logging.error(f"❌ Hatalı değer: '{admin_ids}'")
+                logger.error(f"❌ HATA: Admin ID dönüşüm hatası: {e}")
+                logger.error(f"❌ Hatalı değer: '{admin_ids}'")
         else:
-            logging.warning("⚠️ ADMIN_CHAT_IDS boş veya tanımlanmamış")
+            logger.warning("⚠️ ADMIN_CHAT_IDS boş veya tanımlanmamış")
 
-        # -----------------------------
-        # Webhook Ayarları
-        # -----------------------------
-        self.USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
-        self.WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
-        self.WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
-
-        # -----------------------------
-        # PORT'u ortamdan oku (Render uyumlu)
-        # PORT YAZMA! Render bunu kendi belirliyor!
-        # -----------------------------
-        try:
-            port_str = os.getenv("PORT", "3000")
-            self.PORT = int(port_str)
-            logging.info(f"✅ PORT değeri yüklendi: {self.PORT}")
-        except ValueError:
-            logging.warning(f"⚠️ Geçersiz PORT değeri: {os.getenv('PORT')}, varsayılan 3000 kullanılacak")
-            self.PORT = 3000
+        # Webhook kontrolü
+        if self.USE_WEBHOOK and not self.WEBHOOK_URL:
+            logger.warning("⚠️ USE_WEBHOOK true ama WEBHOOK_URL boş!")
 
         # -----------------------------
         # Veri klasörlerini hazırla
