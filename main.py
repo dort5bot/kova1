@@ -47,7 +47,8 @@ async def start_health_check_server(port: int):
 
 
 # -------------------------------
-# Webhook mode için aiohttp server
+# Webhook mode için aiohttp server + health check endpoint
+#hem sağlık kontrol endpoint’ini aynı app içinde, aynı portta barındır
 # -------------------------------
 async def webhook_handler(request: web.Request):
     """Telegram'dan gelen update'leri aiogram'a aktarır"""
@@ -61,30 +62,35 @@ async def webhook_handler(request: web.Request):
         print(f"Webhook hata: {e}")
         return web.Response(status=500, text="error")
 
+async def health_check_handler(request: web.Request):
+    """Sağlık kontrol endpoint"""
+    return web.Response(text="Bot is running")
 
 async def start_webhook(bot: Bot, dp: Dispatcher):
-    """Webhook mode başlatıcı"""
+    """Webhook mode başlatıcı, aynı app içinde health check ile"""
     app = web.Application()
     app["dp"] = dp
     app["bot"] = bot
 
-    # webhook endpoint -> /webhook/<BOT_TOKEN>
+    # Webhook endpoint -> /webhook/<BOT_TOKEN>
     path = f"/webhook/{config.TELEGRAM_TOKEN}"
     app.router.add_post(path, webhook_handler)
+
+    # Sağlık kontrol endpoint -> /health
+    app.router.add_get("/health", health_check_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", config.PORT)
-    print(f"🌐 Webhook sunucusu {config.PORT} portunda dinleniyor ({path})")
+    print(f"🌐 Webhook ve health check sunucusu {config.PORT} portunda dinleniyor ({path} ve /health)")
     await site.start()
 
-    # telegram'a webhook bildir
+    # Telegram'a webhook bildir
     await bot.set_webhook(
         url=f"{config.WEBHOOK_URL}{path}",
         secret_token=config.WEBHOOK_SECRET or None,
         drop_pending_updates=True,
     )
-
 
 # -------------------------------
 # Main
@@ -112,33 +118,19 @@ async def main():
     dp.include_router(button_router)
 
     try:
-        # Health check sunucusu
-        health_server = await start_health_check_server(config.PORT)
-
         if config.USE_WEBHOOK:
             # Webhook modu
             print("🚀 Webhook modu başlatılıyor...")
             await start_webhook(bot, dp)
 
-            # health server + webhook sonsuza kadar çalışır
-            async with health_server:
-                await asyncio.Event().wait()
-
+            # Sonsuza kadar bekle
+            await asyncio.Event().wait()
         else:
             # Polling modu
             print("🤖 Polling modu başlatılıyor...")
             await bot.delete_webhook(drop_pending_updates=True)
 
-            async with health_server:
-                health_task = asyncio.create_task(health_server.serve_forever())
-                try:
-                    await dp.start_polling(bot)
-                finally:
-                    health_task.cancel()
-                    try:
-                        await health_task
-                    except asyncio.CancelledError:
-                        pass
+            await dp.start_polling(bot)
 
     except Exception as e:
         print(f"❌ Ana hata: {e}")
@@ -151,3 +143,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
