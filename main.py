@@ -1,6 +1,6 @@
-#main.py
-#kova
-#.env → USE_WEBHOOK=true/false ile mod seçiliyor.
+# main.py
+# kova
+# .env → USE_WEBHOOK=true/false ile mod seçiliyor.
 import asyncio
 import os
 import socket
@@ -23,82 +23,97 @@ from utils.logger import setup_logger
 
 # Logger kurulumu
 setup_logger()
-
-
-async def handle_health_check(reader, writer):
-    """Asenkron health check handler"""
-    try:
-        await reader.read(1024)  # isteği oku
-        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nBot is running"
-        writer.write(response.encode())
-        await writer.drain()
-    except Exception as e:
-        print(f"Health check hatası: {e}")
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
-async def start_health_check_server(port: int):
-    """Asenkron health check sunucusu başlat"""
-    server = await asyncio.start_server(handle_health_check, "0.0.0.0", port)
-    print(f"✅ Health check sunucusu {port} portunda başlatıldı")
-    return server
-
+import logging
+logger = logging.getLogger(__name__)
 
 # -------------------------------
-# Webhook mode için aiohttp server + health check endpoint
-#hem sağlık kontrol endpoint’ini aynı app içinde, aynı portta barındır
+# Webhook mode için aiohttp server
 # -------------------------------
 async def webhook_handler(request: web.Request):
     """Telegram'dan gelen update'leri aiogram'a aktarır"""
     dp: Dispatcher = request.app["dp"]
     bot: Bot = request.app["bot"]
     try:
+        # Webhook secret kontrolü (isteğe bağlı)
+        if config.WEBHOOK_SECRET:
+            secret = request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+            if secret != config.WEBHOOK_SECRET:
+                logger.warning("Geçersiz webhook secret")
+                return web.Response(status=403, text="Forbidden")
+        
         update = await request.json()
-        await dp.feed_webhook_update(bot, update, request)
+        await dp.feed_webhook_update(bot, update)
         return web.Response(text="ok")
     except Exception as e:
-        print(f"Webhook hata: {e}")
+        logger.error(f"Webhook hata: {e}")
         return web.Response(status=500, text="error")
 
-async def health_check_handler(request: web.Request):
-    """Sağlık kontrol endpoint"""
+async def handle_health_check(request: web.Request):
+    """Health check endpoint"""
     return web.Response(text="Bot is running")
 
 async def start_webhook(bot: Bot, dp: Dispatcher):
-    """Webhook mode başlatıcı, aynı app içinde health check ile"""
+    """Webhook mode başlatıcı"""
     app = web.Application()
     app["dp"] = dp
     app["bot"] = bot
 
-    # Webhook endpoint -> /webhook/<BOT_TOKEN>
-    path = f"/webhook/{config.TELEGRAM_TOKEN}"
-    app.router.add_post(path, webhook_handler)
-
-    # Sağlık kontrol endpoint -> /health
-    app.router.add_get("/health", health_check_handler)
+    # webhook endpoint -> /webhook/<BOT_TOKEN>
+    webhook_path = f"/webhook/{config.TELEGRAM_TOKEN}"
+    app.router.add_post(webhook_path, webhook_handler)
+    
+    # health check endpoint
+    app.router.add_get("/health", handle_health_check)
+    app.router.add_get("/", handle_health_check)  # root endpoint
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, "0.0.0.0", config.PORT)
-    print(f"🌐 Webhook ve health check sunucusu {config.PORT} portunda dinleniyor ({path} ve /health)")
+    logger.info(f"🌐 Webhook sunucusu {config.PORT} portunda dinleniyor ({webhook_path})")
     await site.start()
 
-    # Telegram'a webhook bildir
-    await bot.set_webhook(
-        url=f"{config.WEBHOOK_URL}{path}",
-        secret_token=config.WEBHOOK_SECRET or None,
-        drop_pending_updates=True,
-    )
+    # telegram'a webhook bildir
+    webhook_url = f"{config.WEBHOOK_URL}{webhook_path}"
+    try:
+        await bot.set_webhook(
+            url=webhook_url,
+            secret_token=config.WEBHOOK_SECRET or None,
+            drop_pending_updates=True,
+        )
+        logger.info(f"✅ Webhook ayarlandı: {webhook_url}")
+    except Exception as e:
+        logger.error(f"❌ Webhook ayarlanamadı: {e}")
+
+    return runner
+
+# -------------------------------
+# Polling modu için health check server
+# -------------------------------
+async def handle_health_check_socket(reader, writer):
+    """Asenkron health check handler (polling modu için)"""
+    try:
+        await reader.read(1024)  # isteği oku
+        response = "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nBot is running"
+        writer.write(response.encode())
+        await writer.drain()
+    except Exception as e:
+        logger.error(f"Health check hatası: {e}")
+    finally:
+        writer.close()
+        await writer.wait_closed()
+
+async def start_health_check_server(port: int):
+    """Asenkron health check sunucusu başlat (polling modu için)"""
+    server = await asyncio.start_server(handle_health_check_socket, "0.0.0.0", port)
+    logger.info(f"✅ Health check sunucusu {port} portunda başlatıldı")
+    return server
 
 # -------------------------------
 # Main
 # -------------------------------
-# main.py'de main fonksiyonunu güncelle
 async def main():
     if not config.TELEGRAM_TOKEN:
-        print("❌ HATA: Bot token bulunamadı!")
+        logger.error("❌ HATA: Bot token bulunamadı!")
         return
 
     storage = MemoryStorage()
@@ -120,36 +135,42 @@ async def main():
 
     try:
         if config.USE_WEBHOOK:
-            # Webhook modu - Render için bu modu kullan
-            print("🚀 Webhook modu başlatılıyor...")
-            print(f"🌐 Port: {config.PORT}")
+            # Webhook modu
+            logger.info("🚀 Webhook modu başlatılıyor...")
+            if not config.WEBHOOK_URL:
+                logger.error("❌ WEBHOOK_URL tanımlanmamış!")
+                return
+                
+            webhook_runner = await start_webhook(bot, dp)
             
-            # Webhook sunucusunu başlat
-            await start_webhook(bot, dp)
-            
-            # Health check sunucusunu da aynı portta çalıştırıyoruz
-            # Bu satırı kaldırın çünkü start_webhook içinde zaten health check var
-            # server = await start_health_check_server(config.PORT)
-            
-            print(f"✅ Bot {config.PORT} portunda dinlemeye başladı")
-            
-            # Sonsuza kadar bekle
+            # Sonsuza kadar çalış
             await asyncio.Event().wait()
+
         else:
-            # Polling modu - Render'da bu mod çalışmaz!
-            print("🤖 Polling modu başlatılıyor...")
+            # Polling modu
+            logger.info("🤖 Polling modu başlatılıyor...")
             await bot.delete_webhook(drop_pending_updates=True)
-            await dp.start_polling(bot)
+            
+            # Health check sunucusu (sadece polling modunda)
+            health_server = await start_health_check_server(config.PORT)
+            
+            async with health_server:
+                health_task = asyncio.create_task(health_server.serve_forever())
+                try:
+                    await dp.start_polling(bot)
+                finally:
+                    health_task.cancel()
+                    try:
+                        await health_task
+                    except asyncio.CancelledError:
+                        pass
 
     except Exception as e:
-        print(f"❌ Ana hata: {e}")
+        logger.error(f"❌ Ana hata: {e}")
         import traceback
         traceback.print_exc()
     finally:
         await bot.session.close()
 
-
 if __name__ == "__main__":
     asyncio.run(main())
-
-
