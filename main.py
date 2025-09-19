@@ -1,217 +1,243 @@
-#main.py
 import asyncio
+import logging
 import os
+import signal
+import sys
+from contextlib import AsyncExitStack
+from pathlib import Path
+
 from aiogram import Bot, Dispatcher
-from aiogram.enums import ParseMode
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.client.default import DefaultBotProperties
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
+from prometheus_client import start_http_server
 
-from config import config
-from handlers.upload_handler import router as upload_router
-from handlers.status_handler import router as status_router
-from handlers.admin_handler import router as admin_router
-from handlers.dar_handler import router as dar_router
-from handlers.id_handler import router as id_router
-from handlers.json_handler import router as json_router
-from handlers.buttons.button_handler import router as button_router
+from config import (
+    TELEGRAM_TOKEN,  # TELEGRAM_TOKEN yerine TELEGRAM_TOKEN
+    ADMIN_IDS,
+    TEMP_DIR,
+    USE_WEBHOOK,
+    WEBHOOK_URL,
+    WEBHOOK_PATH,
+    WEBHOOK_HOST,
+    WEBHOOK_PORT,
+    PROMETHEUS_PORT,
+    LOGS_DIR,
+    SCHEDULER_ENABLED  # Yeni eklenen scheduler kontrolü
+)
+from utils.handler_loader import setup_handlers
+from jobs.scheduler import scheduler, stop_scheduler  # Güncellenmiş import
+from utils.metrics import set_active_processes, increment_db_operation
 
-from utils.logger import setup_logger
+# Logging configuration
+LOGS_DIR.mkdir(exist_ok=True, parents=True)
 
-# Logger kurulumu
-setup_logger()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOGS_DIR / "bot.log", encoding='utf-8'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
 
-# Health check ve webhook için farklı portlar
-HEALTH_CHECK_PORT = 8080  # Health check için varsayılan port
-WEBHOOK_PORT = config.PORT  # Webhook için config'ten gelen port
+# Initialize bot and dispatcher
+bot = Bot(token=TELEGRAM_TOKEN)
+dp = Dispatcher()
 
-
-async def handle_health_check(reader, writer):
-    """Asenkron health check handler"""
+async def on_startup():
+    """Run on bot startup"""
     try:
-        # İsteği oku
-        data = await reader.read(1024)
-        if not data:
-            return
-
-        # Basit HTTP isteği parsing
-        request_line = data.decode().split('\r\n')[0]
-        method, path, _ = request_line.split()
+        # Ensure directories exist
+        TEMP_DIR.mkdir(exist_ok=True, parents=True)
         
-        if path == '/health':
-            response = (
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: 13\r\n\r\n"
-                "Bot is running"
-            )
-            writer.write(response.encode())
-            await writer.drain()
+        logger.info("Starting application initialization...")
+        
+        # Start Prometheus metrics server
+        await start_metrics_server()
+        
+        # Start scheduler (kontrollü)
+        if SCHEDULER_ENABLED:
+            asyncio.create_task(scheduler(bot))
+            logger.info("✅ Scheduler started")
         else:
-            response = (
-                "HTTP/1.1 404 Not Found\r\n"
-                "Content-Type: text/plain\r\n\r\n"
-                "Not Found"
-            )
-            writer.write(response.encode())
-            await writer.drain()
-    except Exception as e:
-        print(f"Health check hatası: {e}")
-        try:
-            response = (
-                "HTTP/1.1 500 Internal Server Error\r\n"
-                "Content-Type: text/plain\r\n\r\n"
-                "Error"
-            )
-            writer.write(response.encode())
-            await writer.drain()
-        except Exception:
-            pass
-    finally:
-        writer.close()
-        await writer.wait_closed()
-
-
-async def start_health_check_server(port: int):
-    """Asenkron health check sunucusu başlat"""
-    server = await asyncio.start_server(
-        handle_health_check, 
-        "0.0.0.0", 
-        port
-    )
-    print(f"✅ Health check sunucusu {port} portunda başlatıldı")
-    return server
-
-
-# -------------------------------
-# Webhook mode için aiohttp server
-# -------------------------------
-async def webhook_handler(request: web.Request):
-    """Telegram'dan gelen update'leri aiogram'a aktarır"""
-    dp: Dispatcher = request.app["dp"]
-    bot: Bot = request.app["bot"]
-    
-    # Secret token kontrolü (eğer ayarlanmışsa)
-    if config.WEBHOOK_SECRET:
-        token = request.headers.get('X-Telegram-Bot-Api-Secret-Token')
-        if token != config.WEBHOOK_SECRET:
-            return web.Response(status=403, text="Forbidden")
-    
-    try:
-        update = await request.json()
-        await dp.feed_webhook_update(bot, update)
-        return web.Response(text="ok")
-    except Exception as e:
-        print(f"Webhook hata: {e}")
-        return web.Response(status=500, text="error")
-
-
-async def start_webhook(bot: Bot, dp: Dispatcher):
-    """Webhook mode başlatıcı"""
-    app = web.Application()
-    app["dp"] = dp
-    app["bot"] = bot
-
-    # Webhook endpoint'i
-    app.router.add_post("/webhook", webhook_handler)
-    
-    # Health endpoint'i webhook modu için de ekle
-    async def health_check(request):
-        return web.Response(text="Bot is running")
-    
-    app.router.add_get("/health", health_check)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", WEBHOOK_PORT)
-    print(f"🌐 Webhook sunucusu {WEBHOOK_PORT} portunda dinleniyor (/webhook)")
-    await site.start()
-
-    # Telegram'a webhook bildirimi
-    await bot.set_webhook(
-        url=f"{config.WEBHOOK_URL}/webhook",
-        secret_token=config.WEBHOOK_SECRET or None,
-        drop_pending_updates=True,
-    )
-    
-    return runner  # Graceful shutdown için runner'ı döndür
-
-
-async def start_polling(bot: Bot, dp: Dispatcher):
-    """Polling mode başlatıcı"""
-    print("🤖 Polling modu başlatılıyor...")
-    await bot.delete_webhook(drop_pending_updates=True)
-    await dp.start_polling(bot)
-
-
-# -------------------------------
-# Main
-# -------------------------------
-async def main():
-    if not config.TELEGRAM_TOKEN:
-        print("❌ HATA: Bot token bulunamadı!")
-        return
-
-    storage = MemoryStorage()
-
-    bot = Bot(
-        token=config.TELEGRAM_TOKEN,
-        default=DefaultBotProperties(parse_mode=ParseMode.HTML),
-    )
-    dp = Dispatcher(storage=storage)
-
-    # Router'ları yükle
-    dp.include_router(upload_router)
-    dp.include_router(status_router)
-    dp.include_router(admin_router)
-    dp.include_router(dar_router)
-    dp.include_router(id_router)
-    dp.include_router(json_router)
-    dp.include_router(button_router)
-
-    health_server = None
-    webhook_runner = None
-
-    try:
-        # Health check sunucusunu başlat (her iki mod için de)
-        health_server = await start_health_check_server(HEALTH_CHECK_PORT)
-        health_task = asyncio.create_task(health_server.serve_forever())
-
-        if config.USE_WEBHOOK:
-            # Webhook modu
-            print("🚀 Webhook modu başlatılıyor...")
-            webhook_runner = await start_webhook(bot, dp)
-            
-            # Her iki sunucu da çalışır durumda kalacak
-            await asyncio.Event().wait()
-        else:
-            # Polling modu
-            await start_polling(bot, dp)
-
-    except KeyboardInterrupt:
-        print("⚠️  Bot kapatılıyor...")
-    except Exception as e:
-        print(f"❌ Ana hata: {e}")
-        import traceback
-        traceback.print_exc()
-    finally:
-        # Graceful shutdown
-        print("🔴 Bot durduruluyor...")
+            logger.info("🛑 Scheduler disabled - development mode")
         
-        if webhook_runner:
-            await webhook_runner.cleanup()
+        # Load all handlers automatically
+        loaded_count = await setup_handlers(dp, "handlers")
+        logger.info(f"{loaded_count} handler(s) loaded successfully")
         
-        if health_server:
-            health_server.close()
-            await health_server.wait_closed()
+        # Initialize database
+        from utils.db_utils import db_manager
+        # Veritabanı tablolarını oluştur
+        db_manager._init_db()
+        increment_db_operation('startup')
+        logger.info("Database initialized")
+        
+        # Initialize source manager
+        from utils.source_utils import source_manager
+        await source_manager.load_from_backup()
+        logger.info("Source manager initialized")
+        
+        # Set webhook if using webhook mode
+        #https://<ngrok_subdomain>.ngrok.io/webhook/<bot_token>
+        if USE_WEBHOOK:
+            webhook_path = f"{WEBHOOK_PATH}/{TELEGRAM_TOKEN}"       # web modu
+            await bot.set_webhook(f"{WEBHOOK_URL}{webhook_path}")
+            logger.info(f"Webhook set successfully: {WEBHOOK_URL}{webhook_path}")
+        
+        # Send startup message to admins
+        for admin_id in ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, "✅ HIDIR Botu başlatıldı.\n\nSistem durumu: /status")
+            except Exception as e:
+                logger.error(f"Admin mesajı gönderilemedi ({admin_id}): {e}")
+        
+        set_active_processes(1)
+        logger.info("✅ Application startup completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Startup failed: {e}")
+        raise
+
+async def on_shutdown():
+    """Run on bot shutdown"""
+    try:
+        logger.info("Shutting down application...")
+        set_active_processes(0)
+        
+        # Scheduler'ı durdur
+        if SCHEDULER_ENABLED:
+            await stop_scheduler()
+            logger.info("Scheduler stopped")
+        
+        if USE_WEBHOOK:
+            await bot.delete_webhook()
+            logger.info("Webhook deleted")
         
         await bot.session.close()
-        print("✅ Bot başarıyla durduruldu")
+        logger.info("Bot session closed")
+        
+        # Cleanup resources
+        from utils.file_utils import cleanup_temp
+        await cleanup_temp()
+        logger.info("Temporary files cleaned up")
+        
+        logger.info("✅ Application shutdown completed successfully")
+        
+    except Exception as e:
+        logger.error(f"Shutdown error: {e}")
 
+async def start_metrics_server():
+    """Start Prometheus metrics server"""
+    try:
+        # Start in background thread
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, start_http_server, PROMETHEUS_PORT)
+        logger.info(f"📊 Prometheus metrics server started on port {PROMETHEUS_PORT}")
+    except Exception as e:
+        logger.error(f"Failed to start metrics server: {e}")
+
+async def main_webhook():
+    """Webhook mode"""
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    app = web.Application()
+    webhook_path = f"{WEBHOOK_PATH}/{TELEGRAM_TOKEN}"
+
+    webhook_requests_handler = SimpleRequestHandler(
+        dispatcher=dp,
+        bot=bot,
+    )
+    webhook_requests_handler.register(app, path=webhook_path)
+
+    setup_application(app, dp, bot=bot)
+
+    try:
+        runner = web.AppRunner(app)
+        await runner.setup()
+        
+        site = web.TCPSite(runner, host=WEBHOOK_HOST, port=WEBHOOK_PORT)
+        await site.start()
+        
+        logger.info(f"🌐 Webhook server started on {WEBHOOK_HOST}:{WEBHOOK_PORT}")
+        logger.info(f"🔗 Webhook URL: {WEBHOOK_URL}{webhook_path}")
+        
+        # Handle graceful shutdown
+        async with AsyncExitStack() as stack:
+            # Wait for shutdown signal
+            await asyncio.Event().wait()
+            
+    except Exception as e:
+        logger.error(f"Webhook server error: {e}")
+        raise
+    finally:
+        if 'runner' in locals():
+            await runner.cleanup()
+
+async def main_polling():
+    """Polling mode"""
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    try:
+        logger.info("🔄 Starting in polling mode...")
+        await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
+    except Exception as e:
+        logger.error(f"Polling error: {e}")
+        raise
+    finally:
+        await bot.session.close()
+
+async def main():
+    """Main function"""
+    try:
+        if USE_WEBHOOK:
+            logger.info("🚀 Starting in WEBHOOK mode")
+            await main_webhook()
+        else:
+            logger.info("🚀 Starting in POLLING mode")
+            await main_polling()
+    except KeyboardInterrupt:
+        logger.info("⏹️ Application stopped by user")
+    except Exception as e:
+        logger.error(f"❌ Application error: {e}")
+        raise
+
+def handle_signal(signum, frame):
+    """Handle shutdown signals"""
+    logger.info(f"📶 Received signal {signum}, shutting down...")
+    
+    # Asenkron shutdown işlemini başlat
+    async def shutdown_async():
+        await on_shutdown()
+        sys.exit(0)
+    
+    # Event loop'u al ve shutdown işlemini başlat
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            asyncio.create_task(shutdown_async())
+        else:
+            loop.run_until_complete(shutdown_async())
+    except Exception as e:
+        logger.error(f"Signal handling error: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    # Asyncio event loop yönetimi
+    # Register signal handlers for graceful shutdown
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+    
     try:
+        # Event loop policy ayarı (Windows için önemli)
+        if sys.platform == 'win32':
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("✅ Bot kapatıldı")
+        logger.info("⏹️ Application manually stopped")
+    except Exception as e:
+        logger.error(f"❌ Unexpected error: {e}")
+        sys.exit(1)
