@@ -95,6 +95,7 @@ async def start_webhook(bot: Bot, dp: Dispatcher):
 # -------------------------------
 # Main
 # -------------------------------
+# main.py'de main fonksiyonunu güncelle
 async def main():
     if not config.TELEGRAM_TOKEN:
         print("❌ HATA: Bot token bulunamadı!")
@@ -119,23 +120,30 @@ async def main():
 
     try:
         if config.USE_WEBHOOK:
-            # Webhook modu
+            # Webhook modu - Render için bu modu kullan
             print("🚀 Webhook modu başlatılıyor...")
+            print(f"🌐 Port: {config.PORT}")
+            
+            # Webhook sunucusunu başlat
             await start_webhook(bot, dp)
-
+            
+            # Health check sunucusunu da aynı portta çalıştırıyoruz
+            # Bu satırı kaldırın çünkü start_webhook içinde zaten health check var
+            # server = await start_health_check_server(config.PORT)
+            
+            print(f"✅ Bot {config.PORT} portunda dinlemeye başladı")
+            
             # Sonsuza kadar bekle
             await asyncio.Event().wait()
         else:
-            # Polling modu
+            # Polling modu - Render'da bu mod çalışmaz!
             print("🤖 Polling modu başlatılıyor...")
             await bot.delete_webhook(drop_pending_updates=True)
-
             await dp.start_polling(bot)
 
     except Exception as e:
         print(f"❌ Ana hata: {e}")
         import traceback
-
         traceback.print_exc()
     finally:
         await bot.session.close()
@@ -143,4 +151,5 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
