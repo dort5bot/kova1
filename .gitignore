@@ -1,99 +1,21 @@
 # ==============================================
 # HIDIR BOT - .gitignore
 # ==============================================
-
-# 🐍 Python
+# Python
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-build/
-dist/
-*.egg-info/
-.installed.cfg
-*.egg
-MANIFEST
+*.pyo
+*.pyd
 
-# 🗃️ Environment & Config
-.env
-.env.*
-!.env.example
-config.ini
-config.json
-secrets.ini
+# Virtual environment
+.venv/
+env/
+ENV/
 
-# 📁 Project Data
-data/database.db
-data/*.db
-data/*.db-journal
-data/sources_backup.txt
-
-# 📊 Temporary Files
-temp/
-*.tmp
-*.temp
-
-# 📝 Logs
-logs/
-*.log
-*.log.*
-logfile.txt
-
-# 📊 Excel Files
-*.xlsx
-*.xls
-*.csv
-
-# 🔐 Security
-*_key
-*_token
-*_secret
-*_password
-credentials.json
-*.pem
-*.key
-
-# 🛠️ IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+# OS
 .DS_Store
 Thumbs.db
 
-# 🐳 Environments
-.venv/
-venv/
-ENV/
-env.bak/
-venv.bak/
-
-# 📦 Packages
-*.7z
-*.dmg
-*.gz
-*.iso
-*.jar
-*.rar
-*.tar
-*.zip
-
-# 🧪 Testing
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-
-# ⚡ OS Files
-.AppleDouble
-.LSOverride
-._*
-.Spotlight-V100
-.Trashes
-.history/
-.nfs*
 
 # 🎯 HIDIR Bot Specific
 /groups.json.backup
@@ -109,3 +31,4 @@ session.sqlite
 # ==============================================
 # NOT: Bu dosya projenizin kök dizininde olmalıdır
 # ==============================================
+
