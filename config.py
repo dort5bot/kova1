@@ -1,4 +1,3 @@
-# config.py
 import os
 import logging
 from dataclasses import dataclass, field
@@ -39,20 +38,10 @@ class Config:
     # -----------------------------
     # Webhook / Polling Ayarları
     # -----------------------------
-    # USE_WEBHOOK=true → webhook aktif
-    # USE_WEBHOOK=false → polling aktif
-    USE_WEBHOOK: bool = field(
-        default_factory=lambda: os.getenv("USE_WEBHOOK", "false").lower() == "true"
-    )
-    WEBHOOK_URL: str = field(
-        default_factory=lambda: os.getenv("WEBHOOK_URL", "")
-    )  # Örn: https://abc2.onrender.com
-    WEBHOOK_SECRET: str = field(
-        default_factory=lambda: os.getenv("WEBHOOK_SECRET", "")
-    )
-    PORT: int = field(
-        default_factory=lambda: int(os.getenv("PORT", "3000"))
-    )  # Render/Heroku için port
+    USE_WEBHOOK: bool = False
+    WEBHOOK_URL: str = ""
+    WEBHOOK_SECRET: str = ""
+    PORT: int = 3000  # Varsayılan, sonra __post_init__ içinde güncellenir
 
     def __post_init__(self):
         # -----------------------------
@@ -78,6 +67,25 @@ class Config:
                 logging.error(f"❌ Hatalı değer: '{admin_ids}'")
         else:
             logging.warning("⚠️ ADMIN_CHAT_IDS boş veya tanımlanmamış")
+
+        # -----------------------------
+        # Webhook Ayarları
+        # -----------------------------
+        self.USE_WEBHOOK = os.getenv("USE_WEBHOOK", "false").lower() == "true"
+        self.WEBHOOK_URL = os.getenv("WEBHOOK_URL", "")
+        self.WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "")
+
+        # -----------------------------
+        # PORT'u ortamdan oku (Render uyumlu)
+        # PORT YAZMA! Render bunu kendi belirliyor!
+        # -----------------------------
+        try:
+            port_str = os.getenv("PORT", "3000")
+            self.PORT = int(port_str)
+            logging.info(f"✅ PORT değeri yüklendi: {self.PORT}")
+        except ValueError:
+            logging.warning(f"⚠️ Geçersiz PORT değeri: {os.getenv('PORT')}, varsayılan 3000 kullanılacak")
+            self.PORT = 3000
 
         # -----------------------------
         # Veri klasörlerini hazırla
