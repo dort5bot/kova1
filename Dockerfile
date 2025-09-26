@@ -1,5 +1,6 @@
-#pip install --upgrade pip setuptools wheel satırında --no-cache-dir ekle → daha az katman şişmesi olur
+# pip install --upgrade pip setuptools wheel satırında --no-cache-dir ekle → daha az katman şişmesi olur
 # builder aşamasında gcc/g++ gibi paketleri kuruyorsun ama runtime’da aslında gerek kalmıyor. Yani image küçültmek için sadece build aşamasında bırakıldı 
+# kova 
 
 # Build aşaması
 FROM python:3.11-slim AS builder
