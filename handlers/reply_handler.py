@@ -18,7 +18,7 @@ from aiogram.fsm.context import FSMContext
 logger = logging.getLogger(__name__)
 router = Router()
 
-#iptal
+#stop
 class ReplyKeyboardSingleton:
     """
     Singleton sınıfı: sadece bir tane ReplyKeyboard üretir.
@@ -34,7 +34,7 @@ class ReplyKeyboardSingleton:
             cls._instance = ReplyKeyboardMarkup(
                 keyboard=[
                     [KeyboardButton(text="Temizle"), KeyboardButton(text="Kova"), KeyboardButton(text="TEK")],
-                    [KeyboardButton(text="iptal"),KeyboardButton(text="JSON yap"), KeyboardButton(text="Komutlar")],
+                    [KeyboardButton(text="stop"),KeyboardButton(text="JSON yap"), KeyboardButton(text="Komutlar")],
                 ],
 
                 resize_keyboard=True,
@@ -95,7 +95,7 @@ async def handle_clear(message: Message, state: FSMContext) -> None:
 
 
 # İptal butonu handler'ı ekleyin
-@router.message(lambda m: m.text and m.text == "iptal")
+@router.message(lambda m: m.text and m.text == "stop")
 async def handle_cancel_button(message: Message, state: FSMContext):
     """Reply keyboard'dan iptal işlemi"""
     current_state = await state.get_state()
@@ -158,3 +158,4 @@ async def handle_show_commands(message: Message, state: FSMContext) -> None:
     text = "\n".join(lines) if lines else "❌ Komut bulunamadı."
 
     await message.answer(f"<pre>{text}</pre>", parse_mode="HTML")
+
