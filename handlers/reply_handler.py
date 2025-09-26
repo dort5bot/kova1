@@ -6,7 +6,6 @@ Kova → /process
 tek → /tek
 JSON yap → /js
 Komutlar → /dar komutunu ekle, tümünü bu maile atar)
-
 """
 
 import logging
@@ -18,7 +17,6 @@ from aiogram.fsm.context import FSMContext
 logger = logging.getLogger(__name__)
 router = Router()
 
-#stop
 class ReplyKeyboardSingleton:
     """
     Singleton sınıfı: sadece bir tane ReplyKeyboard üretir.
@@ -33,7 +31,7 @@ class ReplyKeyboardSingleton:
             logger.debug("ReplyKeyboard oluşturuluyor...")
             cls._instance = ReplyKeyboardMarkup(
                 keyboard=[
-                    [KeyboardButton(text="Temizle"), KeyboardButton(text="Kova"), KeyboardButton(text="TEK")],
+                    [KeyboardButton(text="oku"), KeyboardButton(text="Temizle"), KeyboardButton(text="Kova"), KeyboardButton(text="TEK")],
                     [KeyboardButton(text="stop"),KeyboardButton(text="JSON yap"), KeyboardButton(text="Komutlar")],
                 ],
 
@@ -50,28 +48,40 @@ async def show_reply_keyboard(message: Message, title: str) -> None:
     """
     keyboard = ReplyKeyboardSingleton.get_keyboard()
     await message.answer(
-        f"{title}\n\nAşağıdaki seçeneklerden birini seçin veya Excel dosyası gönderin:",
+        f"{title}\n\nSeçeneklerden birini seçin veya Excel dosyası gönderin:",
         reply_markup=keyboard,
     )
 
 
 # ---------------------------------------------------
-# /start ve /r komutları
+# /oku , /klavye /r komutları
 # ---------------------------------------------------
 
-@router.message(Command("start"))
+# oku
+async def send_welcome_message(message: Message):
+    await message.answer(
+        "📊 Excel İşleme Botuna Hoşgeldiniz!\n\n"
+        "Temizleyi tıkla, Excel dosyasını kontrol et. "
+        "Dosyada 1.satırda 'TARİH' ve 'İL' sütunları bulunmalıdır."
+    )
+    await show_reply_keyboard(message, "📋 Hızlı Erişim Menüsü")
+
+@router.message(Command("oku"))
 async def cmd_start_with_keyboard(message: Message) -> None:
-    """
-    /start komutu → karşılama mesajı + reply keyboard
-    """
-    logger.info("Start komutu çalıştı: %s", message.from_user.id)
-    await show_reply_keyboard(message, "📊 Excel İşleme Botuna Hoşgeldiniz!")
+    logger.info("oku komutu çalıştı: %s", message.from_user.id)
+    await send_welcome_message(message)
+
+@router.message(lambda m: m.text and m.text.lower() == "oku")
+async def handle_oku_text(message: Message):
+    logger.info("oku butonuna basıldı: %s", message.from_user.id)
+    await send_welcome_message(message)
 
 
-@router.message(Command("r"))
+
+@router.message(Command("r", "klavye"))
 async def cmd_reply_keyboard(message: Message) -> None:
     """
-    /r komutu → reply keyboard menüsü
+    /r veya /klavye komutu → sadece reply keyboard menüsü
     """
     logger.info("Reply keyboard menüsü çağrıldı: %s", message.from_user.id)
     await show_reply_keyboard(message, "📋 Hızlı Erişim Menüsü")
@@ -81,7 +91,8 @@ async def cmd_reply_keyboard(message: Message) -> None:
 # Tuşların işlemleri
 # ---------------------------------------------------
 
-#@router.message(lambda m: m.text == "Temizle")
+
+# Temizle
 @router.message(lambda m: m.text and m.text == "Temizle")
 async def handle_clear(message: Message, state: FSMContext) -> None:
     """
@@ -94,14 +105,14 @@ async def handle_clear(message: Message, state: FSMContext) -> None:
     await clear_all(message)
 
 
-# İptal butonu handler'ı ekleyin
+#  stop
 @router.message(lambda m: m.text and m.text == "stop")
 async def handle_cancel_button(message: Message, state: FSMContext):
     """Reply keyboard'dan iptal işlemi"""
     current_state = await state.get_state()
     
     if current_state is None:
-        await message.answer("ℹ️ İptal elma edilecek aktif işlem yok.")
+        await message.answer("ℹ️ iptal edilecek aktif işlem yok.")
         return
     
     await state.clear()
@@ -112,7 +123,8 @@ async def handle_cancel_button(message: Message, state: FSMContext):
     )
 
 
-@router.message(lambda m: m.text == "Kova")
+# Kova
+@router.message(lambda m: m.text and m.text == "Kova")
 async def handle_process(message: Message, state: FSMContext) -> None:
     """
     Reply keyboard → İşle butonu (/process)
@@ -125,15 +137,18 @@ async def handle_process(message: Message, state: FSMContext) -> None:
 
 
 
-# TEK butonu handler'ı ekle
-@router.message(lambda m: m.text == "TEK")
+
+# TEK
+@router.message(lambda m: m.text and m.text == "TEK")
 async def handle_tek(message: Message, state: FSMContext):
     """Reply keyboard → TEK butonu (/tek)"""
     from handlers.tek_handler import cmd_tek
     await message.answer("⚙️ TEK işlem başlatılıyor...")
     await cmd_tek(message, state)
 
-@router.message(lambda m: m.text == "JSON yap")
+
+# JSON yap
+@router.message(lambda m: m.text and m.text == "JSON yap")
 async def handle_create_json(message: Message, state: FSMContext) -> None:
     """
     Reply keyboard → JSON oluştur butonu (/js)
@@ -145,7 +160,8 @@ async def handle_create_json(message: Message, state: FSMContext) -> None:
     await handle_json_command(message, state)
 
 
-@router.message(lambda m: m.text == "Komutlar")
+# Komutlar
+@router.message(lambda m: m.text and m.text == "Komutlar")
 async def handle_show_commands(message: Message, state: FSMContext) -> None:
     """
     Reply keyboard → Komut listesi butonu (/dar)
@@ -158,4 +174,3 @@ async def handle_show_commands(message: Message, state: FSMContext) -> None:
     text = "\n".join(lines) if lines else "❌ Komut bulunamadı."
 
     await message.answer(f"<pre>{text}</pre>", parse_mode="HTML")
-
